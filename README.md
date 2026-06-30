@@ -1,4 +1,4 @@
-# ScreenshotTranslator
+# 截图翻译
 
 一个最小可运行的 macOS 截图翻译应用：
 
@@ -20,7 +20,7 @@ swift run ScreenshotTranslator
 ```bash
 chmod +x scripts/build-app.sh
 ./scripts/build-app.sh
-open dist/ScreenshotTranslator.app
+open dist/截图翻译.app
 ```
 
 ## 配置

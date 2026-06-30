@@ -9,10 +9,14 @@
   <string>ScreenshotTranslator</string>
   <key>CFBundleIdentifier</key>
   <string>local.codex.ScreenshotTranslator</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
+  <key>CFBundleDisplayName</key>
+  <string>截图翻译</string>
   <key>CFBundleName</key>
-  <string>ScreenshotTranslator</string>
+  <string>截图翻译</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
