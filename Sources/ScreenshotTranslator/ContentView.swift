@@ -1,7 +1,10 @@
+import AppKit
+import Carbon
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var viewModel = TranslationViewModel()
+    @ObservedObject private var viewModel = TranslationViewModel.shared
+    @StateObject private var shortcutRecorder = ShortcutRecorder()
 
     @AppStorage("provider") private var provider = TranslationProvider.openAICompatible.rawValue
     @AppStorage("apiKey") private var apiKey = ""
@@ -10,6 +13,8 @@ struct ContentView: View {
     @AppStorage("baiduAppID") private var baiduAppID = ""
     @AppStorage("baiduSecret") private var baiduSecret = ""
     @AppStorage("targetLanguage") private var targetLanguage = "中文"
+    @AppStorage(KeyboardShortcutSetting.keyCodeDefaultsKey) private var shortcutKeyCode = KeyboardShortcutSetting.defaultKeyCode
+    @AppStorage(KeyboardShortcutSetting.modifiersDefaultsKey) private var shortcutModifiers = KeyboardShortcutSetting.defaultModifiers
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,6 +23,10 @@ struct ContentView: View {
             resultArea
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .background(SettingsWindowAccessor())
+        .onDisappear {
+            shortcutRecorder.stop()
+        }
     }
 
     private var toolbar: some View {
@@ -28,7 +37,6 @@ struct ContentView: View {
                 } label: {
                     Label("截图翻译", systemImage: "viewfinder")
                 }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
                 .controlSize(.large)
                 .disabled(viewModel.isTranslating)
 
@@ -117,8 +125,46 @@ struct ContentView: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 160)
             }
+
+            GridRow {
+                Text("快捷键")
+                    .foregroundStyle(.secondary)
+                shortcutSettingRow
+            }
         }
         .font(.callout)
+    }
+
+    private var shortcutSettingRow: some View {
+        HStack(spacing: 8) {
+            Text(shortcutRecorder.isRecording ? "按下新的快捷键" : currentShortcut.displayName)
+                .font(.system(.callout, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(minWidth: 180, maxWidth: 260, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color(nsColor: .textBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor))
+                }
+
+            Button {
+                toggleShortcutRecording()
+            } label: {
+                Label(shortcutRecorder.isRecording ? "取消" : "录制", systemImage: shortcutRecorder.isRecording ? "xmark.circle" : "keyboard")
+            }
+
+            Button {
+                KeyboardShortcutSetting.saveDefault()
+            } label: {
+                Image(systemName: "arrow.counterclockwise")
+            }
+            .help("恢复默认")
+            .disabled(shortcutRecorder.isRecording)
+        }
     }
 
     private var resultArea: some View {
@@ -159,6 +205,13 @@ struct ContentView: View {
         TranslationProvider(rawValue: provider) ?? .openAICompatible
     }
 
+    private var currentShortcut: KeyboardShortcutSetting {
+        KeyboardShortcutSetting(
+            keyCode: UInt32(shortcutKeyCode),
+            modifiers: UInt32(shortcutModifiers)
+        )
+    }
+
     private var resultIsEmpty: Bool {
         viewModel.recognizedText.isEmpty && viewModel.translatedText.isEmpty
     }
@@ -169,6 +222,102 @@ struct ContentView: View {
 
     private var statusColor: Color {
         viewModel.errorMessage == nil ? .secondary : .red
+    }
+
+    private func toggleShortcutRecording() {
+        if shortcutRecorder.isRecording {
+            shortcutRecorder.stop()
+            return
+        }
+
+        shortcutRecorder.start {
+            viewModel.setStatus(ShortcutRecordingError.invalidShortcut)
+        }
+    }
+}
+
+private final class ShortcutRecorder: ObservableObject {
+    @Published private(set) var isRecording = false
+
+    private var monitor: Any?
+
+    func start(onInvalidShortcut: @escaping () -> Void) {
+        stop()
+        isRecording = true
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.isRecording else {
+                return event
+            }
+
+            if event.keyCode == UInt16(kVK_Escape) {
+                self.stop()
+                return nil
+            }
+
+            let shortcut = KeyboardShortcutSetting(
+                keyCode: UInt32(event.keyCode),
+                modifiers: carbonModifiers(from: event.modifierFlags)
+            )
+
+            if shortcut.isValid {
+                KeyboardShortcutSetting.save(shortcut)
+            } else {
+                onInvalidShortcut()
+            }
+
+            self.stop()
+            return nil
+        }
+    }
+
+    func stop() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+
+        monitor = nil
+        isRecording = false
+    }
+
+    deinit {
+        stop()
+    }
+}
+
+private enum ShortcutRecordingError: LocalizedError {
+    case invalidShortcut
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidShortcut:
+            return "快捷键需要包含 Command、Control、Option 或 Shift，并搭配一个非修饰键"
+        }
+    }
+}
+
+private struct SettingsWindowAccessor: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            guard let window = view.window else {
+                return
+            }
+
+            window.delegate = SettingsWindowDelegate.shared
+            TranslationViewModel.shared.attachSettingsWindow(window)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+private final class SettingsWindowDelegate: NSObject, NSWindowDelegate {
+    static let shared = SettingsWindowDelegate()
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        sender.orderOut(nil)
+        return false
     }
 }
 

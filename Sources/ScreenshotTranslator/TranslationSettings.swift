@@ -77,4 +77,16 @@ struct TranslationSettings {
             return normalizedTargetLanguage
         }
     }
+
+    static func stored(in defaults: UserDefaults = .standard) -> TranslationSettings {
+        TranslationSettings(
+            provider: TranslationProvider(rawValue: defaults.string(forKey: "provider") ?? "") ?? .openAICompatible,
+            apiKey: defaults.string(forKey: "apiKey") ?? "",
+            endpoint: defaults.string(forKey: "endpoint") ?? "https://api.openai.com/v1/chat/completions",
+            model: defaults.string(forKey: "model") ?? "gpt-4o-mini",
+            baiduAppID: defaults.string(forKey: "baiduAppID") ?? "",
+            baiduSecret: defaults.string(forKey: "baiduSecret") ?? "",
+            targetLanguage: defaults.string(forKey: "targetLanguage") ?? "中文"
+        )
+    }
 }
