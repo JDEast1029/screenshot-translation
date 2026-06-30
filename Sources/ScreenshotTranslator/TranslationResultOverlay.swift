@@ -3,7 +3,7 @@ import SwiftUI
 
 @MainActor
 final class TranslationResultOverlayController {
-    private var window: NSWindow?
+    private var window: OverlayPanel?
 
     func showProgress(_ message: String) {
         show(state: .progress(message))
@@ -37,19 +37,26 @@ final class TranslationResultOverlayController {
         window = overlayWindow
     }
 
-    private func makeWindow(size: NSSize) -> NSWindow {
-        let overlayWindow = OverlayWindow(
+    private func makeWindow(size: NSSize) -> OverlayPanel {
+        let overlayWindow = OverlayPanel(
             contentRect: NSRect(origin: .zero, size: size),
-            styleMask: [.borderless],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
         overlayWindow.backgroundColor = .clear
         overlayWindow.isOpaque = false
         overlayWindow.hasShadow = true
+        overlayWindow.hidesOnDeactivate = false
         overlayWindow.isReleasedWhenClosed = false
-        overlayWindow.level = .floating
-        overlayWindow.collectionBehavior = [.canJoinAllSpaces, .transient, .fullScreenAuxiliary]
+        overlayWindow.level = .screenSaver
+        overlayWindow.collectionBehavior = [
+            .canJoinAllSpaces,
+            .fullScreenAuxiliary,
+            .stationary,
+            .transient,
+            .ignoresCycle
+        ]
         return overlayWindow
     }
 
@@ -93,7 +100,7 @@ final class TranslationResultOverlayController {
     }
 }
 
-private final class OverlayWindow: NSWindow {
+private final class OverlayPanel: NSPanel {
     override var canBecomeKey: Bool {
         true
     }
