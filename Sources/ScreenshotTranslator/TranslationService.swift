@@ -1,8 +1,18 @@
+import CryptoKit
 import Foundation
 
 struct TranslationService {
     func translate(text: String, settings: TranslationSettings) async throws -> String {
-        let trimmedAPIKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch settings.provider {
+        case .openAICompatible:
+            return try await translateWithOpenAICompatibleAPI(text: text, settings: settings)
+        case .baidu:
+            return try await translateWithBaidu(text: text, settings: settings)
+        }
+    }
+
+    private func translateWithOpenAICompatibleAPI(text: String, settings: TranslationSettings) async throws -> String {
+        let trimmedAPIKey = settings.normalizedAPIKey
         guard !trimmedAPIKey.isEmpty else {
             throw AppError.missingAPIKey
         }
@@ -43,6 +53,54 @@ struct TranslationService {
         return translatedText
     }
 
+    private func translateWithBaidu(text: String, settings: TranslationSettings) async throws -> String {
+        let appID = settings.normalizedBaiduAppID
+        let secret = settings.normalizedBaiduSecret
+
+        guard !appID.isEmpty, !secret.isEmpty else {
+            throw AppError.missingBaiduCredentials
+        }
+
+        let salt = String(Int.random(in: 100_000...999_999))
+        let signature = md5Hex(appID + text + salt + secret)
+        let requestBody = formEncodedData([
+            URLQueryItem(name: "q", value: text),
+            URLQueryItem(name: "from", value: "auto"),
+            URLQueryItem(name: "to", value: settings.baiduTargetLanguageCode),
+            URLQueryItem(name: "appid", value: appID),
+            URLQueryItem(name: "salt", value: salt),
+            URLQueryItem(name: "sign", value: signature)
+        ])
+
+        guard let endpoint = URL(string: "https://fanyi-api.baidu.com/api/trans/vip/translate") else {
+            throw AppError.invalidEndpoint
+        }
+
+        var request = URLRequest(url: endpoint, timeoutInterval: 60)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = requestBody
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateHTTPResponse(response, data: data)
+
+        let decodedResponse = try JSONDecoder().decode(BaiduTranslateResponse.self, from: data)
+        if let errorCode = decodedResponse.errorCode {
+            throw AppError.serverError(decodedResponse.displayErrorMessage(errorCode: errorCode))
+        }
+
+        let translatedText = decodedResponse.transResult?
+            .map(\.dst)
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let translatedText, !translatedText.isEmpty else {
+            throw AppError.emptyTranslation
+        }
+
+        return translatedText
+    }
+
     private func systemPrompt(targetLanguage: String) -> String {
         """
         You translate OCR text captured from screenshots into \(targetLanguage).
@@ -58,9 +116,29 @@ struct TranslationService {
         }
 
         guard (200..<300).contains(httpResponse.statusCode) else {
-            let responseText = String(data: data, encoding: .utf8) ?? "empty response"
-            throw AppError.serverError("翻译接口返回 \(httpResponse.statusCode)：\(responseText)")
+            throw AppError.serverError(errorMessage(statusCode: httpResponse.statusCode, data: data))
         }
+    }
+
+    private func errorMessage(statusCode: Int, data: Data) -> String {
+        if let apiError = try? JSONDecoder().decode(ChatCompletionErrorResponse.self, from: data) {
+            return apiError.displayMessage(statusCode: statusCode)
+        }
+
+        let responseText = String(data: data, encoding: .utf8) ?? "empty response"
+        return "翻译接口返回 \(statusCode)\n\(responseText)"
+    }
+
+    private func formEncodedData(_ queryItems: [URLQueryItem]) -> Data {
+        var components = URLComponents()
+        components.queryItems = queryItems
+        return Data((components.percentEncodedQuery ?? "").utf8)
+    }
+
+    private func md5Hex(_ value: String) -> String {
+        Insecure.MD5.hash(data: Data(value.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 }
 
@@ -92,5 +170,70 @@ private struct ChatCompletionResponse: Decodable {
 
     struct Message: Decodable {
         var content: String?
+    }
+}
+
+private struct ChatCompletionErrorResponse: Decodable {
+    var error: ErrorDetail
+
+    func displayMessage(statusCode: Int) -> String {
+        var lines = ["翻译接口返回 \(statusCode)"]
+
+        if let message = error.message, !message.isEmpty {
+            lines.append("message: \(message)")
+        }
+
+        if let type = error.type, !type.isEmpty {
+            lines.append("type: \(type)")
+        }
+
+        if let code = error.code, !code.isEmpty {
+            lines.append("code: \(code)")
+        }
+
+        if let param = error.param, !param.isEmpty {
+            lines.append("param: \(param)")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    struct ErrorDetail: Decodable {
+        var message: String?
+        var type: String?
+        var code: String?
+        var param: String?
+    }
+}
+
+private struct BaiduTranslateResponse: Decodable {
+    var from: String?
+    var to: String?
+    var transResult: [TranslationResult]?
+    var errorCode: String?
+    var errorMessage: String?
+
+    enum CodingKeys: String, CodingKey {
+        case from
+        case to
+        case transResult = "trans_result"
+        case errorCode = "error_code"
+        case errorMessage = "error_msg"
+    }
+
+    func displayErrorMessage(errorCode: String) -> String {
+        var lines = ["百度翻译接口返回错误"]
+        lines.append("error_code: \(errorCode)")
+
+        if let errorMessage, !errorMessage.isEmpty {
+            lines.append("error_msg: \(errorMessage)")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    struct TranslationResult: Decodable {
+        var src: String
+        var dst: String
     }
 }

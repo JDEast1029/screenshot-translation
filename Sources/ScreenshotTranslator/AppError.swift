@@ -6,6 +6,7 @@ enum AppError: LocalizedError {
     case imageLoadFailed
     case noRecognizedText
     case missingAPIKey
+    case missingBaiduCredentials
     case invalidEndpoint
     case emptyTranslation
     case serverError(String)
@@ -22,6 +23,8 @@ enum AppError: LocalizedError {
             return "截图区域没有识别到文字"
         case .missingAPIKey:
             return "请先填写 API Key"
+        case .missingBaiduCredentials:
+            return "请先填写百度翻译 APP ID 和密钥"
         case .invalidEndpoint:
             return "翻译接口地址不正确"
         case .emptyTranslation:

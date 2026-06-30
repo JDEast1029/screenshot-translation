@@ -27,9 +27,13 @@ open dist/ScreenshotTranslator.app
 
 应用内可配置：
 
+- `服务`，可选 `OpenAI` 或 `百度翻译`
 - `API Key`
 - `接口`，默认 `https://api.openai.com/v1/chat/completions`
 - `模型`，默认 `gpt-4o-mini`
+- 百度翻译的 `APP ID` 和 `密钥`
 - `目标语言`，默认 `中文`
 
 当前版本把配置保存在 `UserDefaults`，适合本地原型验证；如果要正式分发，建议把 API Key 改为 Keychain 存储。
+
+百度翻译模式下，`目标语言` 可以填 `中文`、`英文`、`日文`、`韩文`、`法文`、`德文`、`西班牙文`、`俄文`，也可以直接填百度语言代码，例如 `zh`、`en`、`jp`。
